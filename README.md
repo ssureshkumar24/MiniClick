@@ -1,0 +1,2 @@
+# MiniClick
+MiniClick Gaming website
