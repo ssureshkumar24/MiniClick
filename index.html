@@ -1,0 +1,464 @@
+<html>
+   <head>
+      <title>miniclick.com</title>
+	  <script type="text/javascript" src="js/jquery-1.11.1.min.js"></script>
+	  <script type="text/javascript" src="js/jquery.dataTables.min.js"></script>
+	  <script type="text/javascript" src="js/jquery-ui.js"></script>
+	  <script type="text/javascript" src="js/dataTables.bootstrap4.min.js"></script>
+	  <script type="text/javascript" src="js/highcharts.js"></script>
+	  <link rel="stylesheet" href="css/bootstrap.css">
+	  <link rel="stylesheet" href="css/dataTables.bootstrap4.min.css">
+	  <link rel="stylesheet" href="css/font-awesome.min.css">
+	  <link rel="stylesheet" href="css/jquery-ui.css">
+	  
+	  <script>
+var table;
+var columnNames = [];
+var chartTypes = {
+					"bar":"Bar Chart",
+					"pie":"Pie Chart",
+					"line":"Line Chart",
+					"sbar":"Stacked Bar Chart"
+				 };
+						
+function initData() {
+	$.getJSON("/getJSON", function(json) {
+		initTable(json); 
+	});
+}
+	  
+$(document).ready(function(){
+	initData();
+});
+
+$.fn.dataTable.ext.search.push(
+    function( settings, data, dataIndex ) {
+        var min = parseInt( $('#min').val(), 10 );
+        var max = parseInt( $('#max').val(), 10 );
+        var score = parseFloat( data[6] ) || 0; 
+ 
+        if ( ( isNaN( min ) && isNaN( max ) ) ||
+             ( isNaN( min ) && score <= max ) ||
+             ( min <= score   && isNaN( max ) ) ||
+             ( min <= score   && score <= max ) )
+        {
+            return true;
+        }
+		
+        return false;
+    }
+);
+
+$.fn.dataTableExt.afnFiltering.push(
+    function( oSettings, aData, iDataIndex ) {
+        var iFini = document.getElementById('stdate').value;
+        var iFfin = document.getElementById('edate').value;
+        var iStartDateCol = 4;
+        var iEndDateCol = 5;
+ 
+        iFini=iFini.substring(6,10) + iFini.substring(3,5)+ iFini.substring(0,2);
+        iFfin=iFfin.substring(6,10) + iFfin.substring(3,5)+ iFfin.substring(0,2);
+ 
+        var datofini=aData[iStartDateCol].substring(6,10) + aData[iStartDateCol].substring(3,5)+ aData[iStartDateCol].substring(0,2);
+        var datoffin=aData[iEndDateCol].substring(6,10) + aData[iEndDateCol].substring(3,5)+ aData[iEndDateCol].substring(0,2);
+ 
+        if ( iFini === "" && iFfin === "" )
+        {
+            return true;
+        }
+        else if ( iFini <= datofini && iFfin === "")
+        {
+            return true;
+        }
+        else if ( iFfin >= datoffin && iFini === "")
+        {
+            return true;
+        }
+        else if (iFini <= datofini && iFfin >= datoffin)
+        {
+            return true;
+        }
+        return false;
+    }
+);
+
+function initTable(json) {
+	var tbody = $("<tbody />"),tr;
+	$.each(json,function(_,obj) {
+      tr = $("<tr />");
+      $.each(obj,function(_,text) {
+        tr.append("<td>"+text+"</td>")
+      });
+      tr.appendTo(tbody);
+	});
+	tbody.appendTo("#miniclick"); 
+  
+	table = $('#miniclick').DataTable(
+	{
+  "lengthChange": false,
+  "pageLength": 30,
+   "columnDefs": [ { "visible": true, "targets": [1,2] } ],
+    "drawCallback": function ( settings ) {
+		var api = this.api();
+        var rows = api.rows( {page:'all'} ).nodes();
+        var last=null;
+		
+		var intVal = function ( i ) {
+			return typeof i === 'string' ? i*1 : typeof i === 'number' ? i : 0;
+	    };
+		
+		var groupColumn = -1;
+		if( $('#usergroup').is(':checked') ) {
+			groupColumn = 1;
+		} 
+		if( $('#gamegroup').is(':checked') ) {
+			groupColumn = 2;
+		}
+		
+		if(groupColumn !== -1) {
+			var total=[];
+			var values = [];
+			api.column(groupColumn, {page:'all'} ).data().each( function ( group, i ) {
+				var group_assoc=group.replace(' ',"_");
+				if(typeof total[group_assoc] != 'undefined'){
+					values[group_assoc].push(intVal(api.column(6).data()[i]));
+					total[group_assoc]=total[group_assoc]+intVal(api.column(6).data()[i]);
+				} else {
+					values[group_assoc] = [];
+					values[group_assoc].push(intVal(api.column(6).data()[i]));
+					total[group_assoc]=intVal(api.column(6).data()[i]);
+				}
+				if ( last !== group ) {
+					$(rows).eq( i ).before(
+						'<tr class="group"><td>'+group+'</td><td colspan="5" class="'+group_assoc+'"></td></tr>'
+					);
+					last = group;
+				}
+			} );
+			
+			for(var key in total) {
+				var html = "Count:" + values[key].length + "  Min:" + Math.min.apply(null,values[key]) + "  Max: " + Math.max.apply(null,values[key]) + "  Total:" + total[key] + "  Average:"+(total[key]/values[key].length).toFixed(2);
+				$("."+key).html(html);
+			}
+		}
+		}
+	});
+  
+	$('#min, #max').keyup( function() {
+        table.draw();
+    } );
+	
+	$('#stdate').keyup( function() { table.draw(); } );
+	$('#edate').keyup( function() { table.draw(); } );	  
+}
+
+function initChart() {
+	if(columnNames.length <= 0) {
+		table.columns().every( function () {
+			var header = this.header();
+			columnNames.push($(header).html());
+		});
+	}
+	var $option = $("<option/>", {
+		"value": '',
+		"html": ""
+	});
+	var options = [];
+	//iterate over chart types
+	$.each(chartTypes, function (key, value) {
+		options.push($option.clone().val(key).html(value));
+	});
+	//$("#chartTypes").html(options);
+	
+	options = [];
+	//iterate over column names
+	$.each(columnNames, function (key, value) {
+		options.push($option.clone().val(key).html(value));
+	});
+	//$("#xAxis").html(options);
+	
+	options = [];
+	$.each(columnNames, function (key, value) {
+		options.push($option.clone().val(key).html(value));
+	});
+	//$("#yAxis").html(options);
+	
+	options = [];
+	$.each(columnNames, function (key, value) {
+		options.push($option.clone().val(key).html(value));
+	});
+	//$("#sColumns").html(options);
+	
+	$( "#dialog" ).dialog(
+		{
+			height: 500,
+			width: 950,
+			modal: false,
+			draggable: true,
+			resizable: true,
+			position: ['center',20]
+		}
+	);
+}
+
+function showOrHideXY(selectedChartType) {
+	$("#xAxisTR").css("display", "");
+	$("#yAxisTR").css("display", "");
+	$("#sColumnTR").css("display", "none");
+	if(selectedChartType == "pie" || selectedChartType == "line") {
+		$("#xAxisTR").css("display", "none");
+		$("#yAxisTR").css("display", "none");
+		$("#sColumnTR").css("display", "");
+	}
+}
+
+function groupRowsByGame() {
+	var rowData = [];
+	table.column(2, {page:'all'} ).data().each( function ( group, i ) {
+		if(typeof rowData[group] != 'undefined'){
+			rowData[group]=rowData[group]+(table.column(6).data()[i]*1);
+		} else {
+			rowData[group]=table.column(6).data()[i]*1;
+		}
+	} );
+	return rowData;
+}
+
+function genChart() {
+	var chartType = $("#chartTypes option:selected").val();
+	var rowData = groupRowsByGame();
+	var xAxis = $("#xAxis option:selected").text();
+	var yAxis = $("#yAxis option:selected").text();
+	
+	var xData = table.column(2).data().eq(0).sort().unique();
+	
+		
+	if(chartType == "bar") {
+		var dataSeries = [];
+		var i = 0;
+		for(var key in rowData) {
+			var ds = {};
+			ds['name'] = key;
+			ds['data'] = [rowData[key]];
+			dataSeries[i++] = ds;
+		}
+		$('#chartContainer').highcharts({
+			chart: {
+				type: chartType
+			},
+			title: {
+				text: $("#chartTitle").val()
+			},
+			xAxis: {
+				categories: xData,
+				title: {
+					text: "Games"
+				}
+			},
+			yAxis: {
+				title: "Games"
+			},
+			series: dataSeries
+		});
+	} else if(chartType == "pie") {
+		var dataSeries = [];
+		var i = 0;
+		for(var key in rowData) {
+			var ds = {};
+			ds['name'] = key;
+			ds['y'] = rowData[key];
+			dataSeries[i++] = ds;
+		}
+		$('#chartContainer').highcharts({
+			chart: {
+				type: chartType
+			},
+			title: {
+				text: $("#chartTitle").val()
+			},
+			series: [{
+				name: 'Games',
+				colorByPoint: true,
+				data: dataSeries
+			}]
+		});
+	}
+}
+
+function grpUser(obj) {
+	if($(obj).is(':checked')) {
+		$('#gamegroup').prop('checked', false);
+		table
+          .columns( 2 )
+          .visible( true );
+		table.order(1, 'asc');
+		table
+          .columns( 1 )
+          .visible( false )
+          .draw();
+	} else {
+		table.order(0, 'asc');
+		table
+          .columns( 1 )
+          .visible( true ).draw();
+	}
+}
+
+function grpGame(obj) {
+	if($(obj).is(':checked')) {
+		$('#usergroup').prop('checked', false);
+		table
+          .columns( 1 )
+          .visible( true );
+		table.order(2, 'asc');
+		table
+          .columns( 2 )
+          .visible( false )
+          .draw();
+	} else {
+		table.order(0, 'asc');
+		table
+          .columns( 2 )
+          .visible( true ).draw();
+	}
+}
+	
+  </script>
+   </head>
+   
+   <body>
+   <table cellspacing="5" cellpadding="5" border="0">
+        <tbody>
+			<tr>
+				<td>
+					<table cellspacing="5" cellpadding="5" border="1">
+						<tbody>
+							<tr>
+								<td colspan="4" style="font-weight:bold;text-align:center;">Filters</td>
+							</tr>
+							<tr>
+								<td>Minimum Score:</td>
+								<td><input id="min" name="min" type="text"></td>
+								
+								<td>Start Date:</td>
+								<td><input id="stdate" name="stdate" type="text"></td>
+							</tr>
+							<tr>
+								<td>Maximum Score:</td>
+								<td><input id="max" name="max" type="text"></td>
+								
+								<td>End Date:</td>
+								<td><input id="edate" name="edate" type="text"></td>
+							</tr>
+						</tbody>
+					</table>
+				</td>
+				<td>
+					<table cellspacing="5" cellpadding="5" border="1">
+						<tbody>
+							<tr>
+								<td style="font-weight:bold;text-align:center;">Groups</td>
+							</tr>
+							<tr>
+								<td>
+									<label for="usergroup">Group by Username</label>
+									<input type="checkbox" id="usergroup" name="usergroup" onchange="grpUser(this);">
+								</td>
+							</tr>
+							<tr>
+								<td>
+									<label for="gamegroup">Group by Game</label>
+									<input type="checkbox" id="gamegroup" name="gamegroup" onchange="grpGame(this);">
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</td>
+				<td>
+					<table cellspacing="5" cellpadding="5" border="1">
+						<tbody>
+							<tr>
+								<td colspan="2" style="font-weight:bold;text-align:center;">Charts</td>
+							</tr>
+							<tr>
+								<td colspan="2"><button onclick="initChart()" style="font-size:18px">Generate Chart <i class="fa fa-bar-chart"></i></button></td>
+							</tr>
+						</tbody>
+					</table>
+				</td>		
+			</tr>
+		</tbody>
+	</table>
+	
+      <table id="miniclick" class="table table-striped table-bordered" width="100%" cellspacing="0">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Game</th>
+                <th>Difficult Level</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+				<th>Score</th>
+            </tr>
+        </thead>
+	</table>
+	
+	<div id="dialog" title="Generate Chart" style="display:none;">
+		<table cellspacing="5" cellpadding="5" border="0" width="100%">
+			<tbody>
+				<tr>
+					<td align="left" width="350px" style="vertical-align:top;">
+						<table cellspacing="5" cellpadding="5" border="0" width="100%">
+							<tbody>
+								<tr>
+									<td>Chart Type</td>
+									<td>
+										<select id="chartTypes" name="chartTypes">
+											<option value="bar" selected="true">Bar Chart</option>
+											<option value="pie">Pie Chart</option>
+										</select>
+									</td>
+								</tr>
+								<tr>
+									<td>Chart Title</td>
+									<td><input id="chartTitle" name="chartTitle" type="text"></td>
+								</tr>
+								<tr id="xAxisTR">
+									<td>X Axis</td>
+									<td>
+										<select id="xAxis" name="xAxis">
+											<option value="game" selected="true">Game</option>
+										</select>
+									</td>
+								</tr>
+								<tr id="yAxisTR">
+									<td>Y Axis</td>
+									<td>
+										<select id="yAxis" name="yAxis">
+											<option value="score" selected="true">Score</option>
+										</select>
+									</td>
+								</tr>
+								<tr id="sColumnTR" style="display:none">
+									<td>Column</td>
+									<td>
+										<select id="sColumns" name="sColumns">
+										</select>
+									</td>
+								</tr>
+								<tr>
+									<td colspan="2" align="right"><button onclick="genChart()" style="font-size:18px">Generate Chart</button></td>
+								</tr>
+							</tbody>
+						</table>
+					</td>
+					<td width="600px" style="vertical-align:top;">
+						<div id="chartContainer" style="height: 400px; width: 100%;"></div>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+   </body>
+</html>
